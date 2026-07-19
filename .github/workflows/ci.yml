@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  native:
+    name: Format, lint, and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Rust components
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup component add clippy rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lint all targets
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Test all targets
+        run: cargo test --all-targets --locked
+
+  wasmtime:
+    name: Wasmtime Smart HTTP integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      WASMTIME_VERSION: 46.0.1
+      WASMTIME_SHA256: 9ae0b17ea298bcc52277a8208d6ab7fae8e1a89579672f9d82f9d86c116edb62
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Rust and WASIp2 target
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup target add wasm32-wasip2
+
+      - name: Download verified Wasmtime release
+        run: |
+          archive="wasmtime-v${WASMTIME_VERSION}-x86_64-linux.tar.xz"
+          url="https://github.com/bytecodealliance/wasmtime/releases/download/v${WASMTIME_VERSION}/${archive}"
+          curl --fail --location --retry 3 --output "$archive" "$url"
+          echo "${WASMTIME_SHA256}  ${archive}" | sha256sum --check --strict
+          tar --extract --xz --file "$archive"
+          echo "$PWD/wasmtime-v${WASMTIME_VERSION}-x86_64-linux" >> "$GITHUB_PATH"
+
+      - name: Build WASIp2 integration driver
+        env:
+          RUSTFLAGS: --cfg tokio_unstable
+        run: cargo build --locked --target wasm32-wasip2 --example git-wasip2-driver
+
+      - name: Verify fetch and push through loopback Smart HTTP
+        run: scripts/verify-smart-http-wasmtime.sh
