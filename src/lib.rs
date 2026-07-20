@@ -7,10 +7,12 @@ use std::{
 
 use thiserror::Error;
 
+mod commit;
 mod fetch;
 mod http;
 mod push;
 
+pub use commit::{DirectoryCommit, DirectoryCommitRequest, create_directory_commit};
 pub use fetch::{
     FetchOutcome, FetchRequest, changed_paths, commit_root_entry_oid, delete_reference_under,
     export_full_snapshot, export_selected_snapshot, fetch, finalize_fast_forward_checkout,
