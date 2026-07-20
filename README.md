@@ -19,10 +19,10 @@ of each consuming application.
 
 ## Status and integration constraints
 
-The current compatibility build pins public `enbop` forks of Gitoxide and
-memmap2. Top-level consumers must repeat the memmap2 `[patch.crates-io]` entry
-because Cargo patches do not propagate from dependencies. Tokio networking on
-`wasm32-wasip2` currently requires:
+The current compatibility build pins a public `enbop` Gitoxide revision which
+in turn pins the public WASIp2-compatible memmap2 fork. Consumers therefore do
+not need their own Gitoxide or memmap2 dependency overrides. Tokio networking
+on `wasm32-wasip2` currently requires:
 
 ```bash
 RUSTFLAGS="--cfg tokio_unstable" cargo build --target wasm32-wasip2
