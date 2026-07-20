@@ -12,12 +12,15 @@ mod fetch;
 mod http;
 mod push;
 
-pub use commit::{DirectoryCommit, DirectoryCommitRequest, create_directory_commit};
+pub use commit::{
+    DirectoryCommit, DirectoryCommitRequest, SnapshotCommit, SnapshotCommitRequest,
+    create_directory_commit, create_snapshot_commit,
+};
 pub use fetch::{
     FetchOutcome, FetchRequest, changed_paths, commit_root_entry_oid, delete_reference_under,
-    export_full_snapshot, export_selected_snapshot, fetch, finalize_fast_forward_checkout,
-    is_ancestor, reference_exists, reference_oid, set_head_branch, validate_repository,
-    worktree_changed_paths,
+    directory_changed_paths, export_full_snapshot, export_selected_snapshot, fetch,
+    finalize_fast_forward_checkout, is_ancestor, reference_exists, reference_oid, set_head_branch,
+    validate_repository, worktree_changed_paths,
 };
 pub use push::{PushOutcome, push_one_commit};
 

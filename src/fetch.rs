@@ -223,6 +223,42 @@ pub fn worktree_changed_paths(
         .collect())
 }
 
+/// Compare a standalone directory with the complete tree of a commit.
+///
+/// Paths are returned relative to `directory`, in lexical order. The directory
+/// is deliberately separate from the repository so callers can keep Git
+/// metadata outside the compared tree.
+pub fn directory_changed_paths(
+    repository_path: impl AsRef<Path>,
+    commit_oid: &str,
+    directory: impl AsRef<Path>,
+) -> Result<Vec<String>, Error> {
+    let repository = gix::open(repository_path.as_ref()).map_err(git_error)?;
+    let tree = find_commit_tree(&repository, commit_oid)?;
+    let mut expected = BTreeMap::new();
+    collect_tree_entries(&tree, "", &mut expected)?;
+
+    let directory = directory.as_ref();
+    let metadata = fs::symlink_metadata(directory).map_err(|source| Error::Io {
+        path: directory.to_owned(),
+        source,
+    })?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err(Error::Git(format!(
+            "comparison path is not a real directory: {}",
+            directory.display()
+        )));
+    }
+    let mut actual = BTreeMap::new();
+    collect_worktree_entries(directory, directory, &mut actual, repository.object_hash())?;
+
+    let all_paths: BTreeSet<_> = expected.keys().chain(actual.keys()).cloned().collect();
+    Ok(all_paths
+        .into_iter()
+        .filter(|path| expected.get(path).map(|(_, oid)| oid) != actual.get(path))
+        .collect())
+}
+
 fn area_matches(path: &str, areas: &[&str]) -> bool {
     areas
         .iter()
@@ -780,10 +816,10 @@ mod tests {
     use gix::{bstr::ByteSlice, objs::tree::EntryKind};
 
     use super::{
-        changed_paths, delete_reference_under, export_full_snapshot, export_selected_snapshot,
-        finalize_fast_forward_checkout, is_ancestor, reference_exists, set_head_branch,
-        validate_branch, validate_remote_name, validate_repository, validate_snapshot_objects,
-        worktree_changed_paths,
+        changed_paths, delete_reference_under, directory_changed_paths, export_full_snapshot,
+        export_selected_snapshot, finalize_fast_forward_checkout, is_ancestor, reference_exists,
+        set_head_branch, validate_branch, validate_remote_name, validate_repository,
+        validate_snapshot_objects, worktree_changed_paths,
     };
 
     #[test]
@@ -847,6 +883,49 @@ mod tests {
                 "content/item.md",
                 "content/untracked.md",
             ]
+        );
+    }
+
+    #[test]
+    fn compares_a_standalone_directory_with_a_complete_commit() {
+        let temporary = tempfile::tempdir().unwrap();
+        let repository = gix::init(temporary.path().join("repository")).unwrap();
+        let kept = repository.write_blob(b"kept\n").unwrap();
+        let changed = repository.write_blob(b"before\n").unwrap();
+        let deleted = repository.write_blob(b"deleted\n").unwrap();
+        let mut editor = repository.edit_tree(repository.empty_tree().id).unwrap();
+        editor.upsert("kept.txt", EntryKind::Blob, kept).unwrap();
+        editor
+            .upsert("nested/changed.txt", EntryKind::Blob, changed)
+            .unwrap();
+        editor
+            .upsert("nested/deleted.txt", EntryKind::Blob, deleted)
+            .unwrap();
+        let tree = editor.write().unwrap();
+        let identity = gix::actor::SignatureRef {
+            name: b"git-wasip2 Test".as_bstr(),
+            email: b"test@git-wasip2.invalid".as_bstr(),
+            time: "1784160000 +0000",
+        };
+        let commit = repository
+            .commit_as(
+                identity,
+                identity,
+                "refs/heads/main",
+                "fixture",
+                tree,
+                gix::commit::NO_PARENT_IDS,
+            )
+            .unwrap();
+        let worktree = temporary.path().join("worktree");
+        fs::create_dir_all(worktree.join("nested")).unwrap();
+        fs::write(worktree.join("kept.txt"), b"kept\n").unwrap();
+        fs::write(worktree.join("nested/changed.txt"), b"after\n").unwrap();
+        fs::write(worktree.join("untracked.txt"), b"new\n").unwrap();
+
+        assert_eq!(
+            directory_changed_paths(repository.path(), &commit.to_string(), &worktree).unwrap(),
+            ["nested/changed.txt", "nested/deleted.txt", "untracked.txt"]
         );
     }
 
