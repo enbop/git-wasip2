@@ -3,11 +3,12 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 WASMTIME=${WASMTIME:-wasmtime}
-WASM="$ROOT/target/wasm32-wasip2/debug/examples/git-wasip2-driver.wasm"
+WASM="$ROOT/target/wasm32-wasip2/debug/examples/git-wasip2.wasm"
 TEMPORARY=$(mktemp -d "${TMPDIR:-/tmp}/git-wasip2-integration.XXXXXX")
 REMOTE="$TEMPORARY/remote.git"
 SEED="$TEMPORARY/seed"
 CLIENT="$TEMPORARY/work/client"
+WORKTREE="$TEMPORARY/work/worktree"
 READY="$TEMPORARY/server.port"
 SERVER_LOG="$TEMPORARY/server.log"
 SERVER_PID=
@@ -26,8 +27,8 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 if [ ! -f "$WASM" ]; then
-    printf 'missing WASIp2 integration driver: %s\n' "$WASM" >&2
-    printf 'build it with RUSTFLAGS="--cfg tokio_unstable" cargo build --locked --target wasm32-wasip2 --example git-wasip2-driver\n' >&2
+    printf 'missing WASIp2 example CLI: %s\n' "$WASM" >&2
+    printf 'build it with RUSTFLAGS="--cfg tokio_unstable" cargo build --locked --target wasm32-wasip2 --example git-wasip2\n' >&2
     exit 1
 fi
 
@@ -69,11 +70,21 @@ grep -F "remote_tip=$INITIAL_TIP" "$TEMPORARY/fetch.log" >/dev/null
 test "$(git -C "$CLIENT" rev-parse refs/remotes/origin/main)" = "$INITIAL_TIP"
 git -C "$CLIENT" fsck --full
 
-run_guest create-commit /work/client refs/remotes/origin/main \
-    refs/git-wasip2/integration-candidate wasi-push.txt \
-    "written and committed inside Wasmtime" >"$TEMPORARY/create.log"
+run_guest checkout /work/client refs/remotes/origin/main /work/worktree \
+    >"$TEMPORARY/checkout.log"
+test "$(cat "$WORKTREE/initial.txt")" = "initial content"
+printf 'written and committed inside Wasmtime\n' >"$WORKTREE/wasi-push.txt"
+run_guest status /work/client refs/remotes/origin/main /work/worktree \
+    >"$TEMPORARY/status.log"
+grep -F "changed=wasi-push.txt" "$TEMPORARY/status.log" >/dev/null
+
+run_guest commit /work/client refs/remotes/origin/main /work/worktree \
+    refs/git-wasip2/integration-candidate \
+    "test: create WASIp2 push candidate" >"$TEMPORARY/create.log"
 CANDIDATE=$(git -C "$CLIENT" rev-parse refs/git-wasip2/integration-candidate)
 test "$(git -C "$CLIENT" rev-parse "$CANDIDATE^")" = "$INITIAL_TIP"
+test "$(run_guest show-ref /work/client refs/git-wasip2/integration-candidate)" = \
+    "$CANDIDATE"
 
 run_guest push "$URL" /work/client refs/git-wasip2/integration-candidate \
     refs/heads/main >"$TEMPORARY/push.log"

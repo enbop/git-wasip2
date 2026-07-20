@@ -1,58 +1,112 @@
 # git-wasip2
 
-`git-wasip2` is an early-stage, bounded Smart HTTP Git client for Rust
-applications compiled to `wasm32-wasip2`.
+Bounded Git operations for Rust applications running on `wasm32-wasip2`.
 
-It extracts the provider-independent Git/WASI work proven by Plainfeed. The
-crate deliberately exposes a narrow synchronization substrate instead of a
-general Git porcelain:
+## Supported operations
 
-- public and authenticated HTTPS fetch;
-- bounded response, object, pack, and repository storage;
-- commit, tree, reference, ancestry, and worktree inspection;
-- safe snapshot export; and
-- one-commit, SHA-1, fast-forward Smart HTTP push with status verification.
+- Smart HTTP fetch, including HTTPS Basic authentication
+- commit, tree, reference, ancestry, and worktree inspection
+- full or selected tree checkout into a standalone directory
+- status comparison between a commit and a standalone directory
+- one-parent commits from a directory snapshot
+- one-commit, SHA-1, fast-forward Smart HTTP push
+- response, object, pack, and repository-size limits
 
-It does not define application path ownership, conflict policy, file formats,
-staging layout, scheduling, or recovery journals. Those remain responsibilities
-of each consuming application.
+The current scope does not include SSH, SHA-256 repositories, submodules,
+merge, rebase, or general Git porcelain.
 
-## Status and integration constraints
+## Try it locally with Wasmtime
 
-The current compatibility build pins a public `enbop` Gitoxide revision which
-in turn pins the public WASIp2-compatible memmap2 fork. Consumers therefore do
-not need their own Gitoxide or memmap2 dependency overrides. Tokio networking
-on `wasm32-wasip2` currently requires:
+Requirements: Rust, Git, Python 3, and Wasmtime.
+
+Build the example CLI:
 
 ```bash
-RUSTFLAGS="--cfg tokio_unstable" cargo build --target wasm32-wasip2
+rustup target add wasm32-wasip2
+RUSTFLAGS="--cfg tokio_unstable" cargo build --release --locked \
+  --target wasm32-wasip2 --example git-wasip2
 ```
 
-The API and compatibility requirements may change before the first stable
-release.
-
-## Verification
-
-Native checks cover formatting, linting, limits, repository inspection,
-snapshot export, reference safety, and fast-forward finalization. The CI also
-downloads a checksum-pinned Wasmtime release and starts a loopback Smart HTTP
-fixture backed by `git-upload-pack` and `git-receive-pack`. A real WASIp2 guest
-then fetches, creates a one-parent commit, pushes it, rejects a stale repeat,
-and leaves repositories that pass independent native `git fsck --full` checks.
-
-Run the same integration test locally with:
+In the first terminal, create a temporary Git remote and keep its loopback
+Smart HTTP server running:
 
 ```bash
-RUSTFLAGS="--cfg tokio_unstable" cargo build --locked \
-  --target wasm32-wasip2 --example git-wasip2-driver
-scripts/verify-smart-http-wasmtime.sh
+scripts/serve-local-test-repo.sh
 ```
 
-## Origin
+In a second terminal, load the paths printed by the server:
 
-The implementation was initially developed as `plainfeed-git`. Its research
-record is preserved in [`docs/plainfeed-origin.md`](docs/plainfeed-origin.md).
-Development is AI-assisted and commits retain explicit attribution.
+```bash
+source target/git-wasip2-demo.env
+```
+
+Fetch `main` inside Wasmtime:
+
+```bash
+wasmtime run -S inherit-network=y \
+  --dir "$DEMO_WORKSPACE::/demo" \
+  "$GIT_WASIP2_WASM" \
+  fetch "$REMOTE_URL" /demo/client main
+```
+
+Check out the fetched commit into a separate, editable directory:
+
+```bash
+wasmtime run \
+  --dir "$DEMO_WORKSPACE::/demo" \
+  "$GIT_WASIP2_WASM" \
+  checkout /demo/client refs/remotes/origin/main /demo/worktree
+```
+
+Change the checkout from the host terminal:
+
+```bash
+printf 'written during the Wasmtime demo\n' >"$DEMO_WORKSPACE/worktree/hello.txt"
+```
+
+Inspect the change inside Wasmtime:
+
+```bash
+wasmtime run \
+  --dir "$DEMO_WORKSPACE::/demo" \
+  "$GIT_WASIP2_WASM" \
+  status /demo/client refs/remotes/origin/main /demo/worktree
+```
+
+Create a one-parent candidate commit from the complete checkout:
+
+```bash
+wasmtime run \
+  --dir "$DEMO_WORKSPACE::/demo" \
+  "$GIT_WASIP2_WASM" \
+  commit /demo/client refs/remotes/origin/main /demo/worktree \
+  refs/git-wasip2/candidate "demo: add hello"
+```
+
+Push the candidate to the local remote:
+
+```bash
+wasmtime run -S inherit-network=y \
+  --dir "$DEMO_WORKSPACE::/demo" \
+  "$GIT_WASIP2_WASM" \
+  push "$REMOTE_URL" /demo/client \
+  refs/git-wasip2/candidate refs/heads/main
+```
+
+Use native Git to independently inspect the result:
+
+```bash
+git --git-dir="$REMOTE_REPOSITORY" log --oneline --decorate
+git --git-dir="$REMOTE_REPOSITORY" show main:hello.txt
+git --git-dir="$REMOTE_REPOSITORY" fsck --full
+```
+
+Press Ctrl+C in the first terminal to stop the server and remove the temporary
+repositories.
+
+For HTTPS authentication, pass `GIT_WASIP2_USERNAME` and
+`GIT_WASIP2_PASSWORD` into the guest environment together. Credentials are not
+accepted as command arguments.
 
 ## License
 

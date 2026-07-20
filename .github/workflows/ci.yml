@@ -66,10 +66,10 @@ jobs:
           tar --extract --xz --file "$archive"
           echo "$PWD/wasmtime-v${WASMTIME_VERSION}-x86_64-linux" >> "$GITHUB_PATH"
 
-      - name: Build WASIp2 integration driver
+      - name: Build WASIp2 example CLI
         env:
           RUSTFLAGS: --cfg tokio_unstable
-        run: cargo build --locked --target wasm32-wasip2 --example git-wasip2-driver
+        run: cargo build --locked --target wasm32-wasip2 --example git-wasip2
 
       - name: Verify fetch and push through loopback Smart HTTP
         run: scripts/verify-smart-http-wasmtime.sh
