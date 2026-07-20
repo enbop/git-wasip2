@@ -21,6 +21,12 @@ pub use fetch::{
 };
 pub use push::{PushOutcome, push_one_commit};
 
+/// Low-level fixtures for downstream integration tests.
+///
+/// This is intentionally feature-gated and is not part of the application API.
+#[cfg(feature = "test-support")]
+pub use gix as test_gix;
+
 #[derive(Clone)]
 pub struct Credentials {
     username: String,

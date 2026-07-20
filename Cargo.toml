@@ -6,6 +6,9 @@ license = "MIT"
 repository = "https://github.com/enbop/git-wasip2"
 description = "A bounded Smart HTTP Git client for wasm32-wasip2"
 
+[features]
+test-support = []
+
 [dependencies]
 futures-util = "0.3.31"
 gix = { git = "https://github.com/enbop/gitoxide.git", rev = "283374581e2c8fa2fea28079e1f284a1b0c7fbfc", default-features = false, features = ["async-network-client", "index", "sha1", "tree-editor"] }
